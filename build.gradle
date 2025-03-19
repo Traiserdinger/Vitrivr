@@ -1,0 +1,148 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    id 'idea'
+    id "org.jetbrains.kotlin.jvm" version "$version_kotlin"
+    id "org.jetbrains.kotlin.plugin.serialization" version "$version_kotlin"
+    id "org.openapi.generator" version "7.1.0"
+    id "de.undercouch.download" version "5.5.0"
+}
+
+apply plugin: 'distribution'
+
+allprojects {
+    /* Group name of our artifacts */
+    group = 'org.vitrivr'
+
+    /* Our current version, on dev branch this should always be release+1-SNAPSHOT */
+    version = '0.16.0'
+
+    /* Repositories for build script. */
+    buildscript {
+        repositories {
+            mavenCentral()
+            maven {
+                url "https://oss.sonatype.org/content/repositories/snapshots/"
+            }
+        }
+    }
+
+    /* Project repositories for build script. */
+    repositories {
+        mavenCentral()
+        maven {
+            url "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+    }
+}
+
+subprojects {
+    /* Common plugins. */
+    apply plugin: 'java'
+    apply plugin: 'kotlin'
+    apply plugin: 'idea'
+    apply plugin: 'java-library'
+    apply plugin: 'java-test-fixtures'
+
+    /* Source requires Java 17, to run Cottontail DB we require Java 11. */
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_11
+
+    /* Compiler options for Kotlin. */
+    compileKotlin {
+        compilerOptions.freeCompilerArgs.add("-Xcontext-receivers")
+        compilerOptions.jvmTarget = JvmTarget.JVM_11
+    }
+
+    /* Compiler options for Kotlin when running tests. */
+    compileTestKotlin {
+        compilerOptions.freeCompilerArgs.add("-Xcontext-receivers")
+        compilerOptions.jvmTarget = JvmTarget.JVM_11
+    }
+
+    compileTestFixturesKotlin {
+        compilerOptions.freeCompilerArgs.add("-Xcontext-receivers")
+        compilerOptions.jvmTarget = JvmTarget.JVM_11
+    }
+
+    kotlin {
+        jvmToolchain(17)
+    }
+
+    java {
+        toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+        withJavadocJar()
+        withSourcesJar()
+    }
+
+    /** Increase heap size for all unit tests. */
+    test {
+        minHeapSize = "256M"
+        maxHeapSize = "2G"
+    }
+
+    javadoc {
+        options.addStringOption("Xdoclint:none", "-quiet")
+        options.memberLevel = JavadocMemberLevel.PRIVATE
+        if (JavaVersion.current().isJava9Compatible()) {
+            options.addBooleanOption("html5", true)
+        }
+    }
+
+    /* Important warnings that are currently missing simply because there are too many: "cast", "rawtypes". Ideally, "all" should be used in the future. */
+    def javaCompilerOptions = []
+    compileJava {
+        options.encoding = 'UTF-8'
+        options.compilerArgs += javaCompilerOptions
+    }
+    compileTestJava.options.compilerArgs += javaCompilerOptions
+
+    /* Common dependencies. */
+    dependencies {
+        ///// Kotlin
+        implementation group: 'org.jetbrains.kotlin', name: 'kotlin-stdlib', version: version_kotlin
+        implementation group: 'org.jetbrains.kotlin', name: 'kotlin-reflect', version: version_kotlin
+        implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-coroutines-core', version: version_kotlinx_coroutines
+        implementation group: 'org.jetbrains.kotlinx', name: 'kotlinx-serialization-json-jvm', version: version_kotlinx_serialization
+
+        ////// Log4j2 & SLF4j
+        implementation group: 'org.slf4j', name: 'slf4j-api', version: version_slf4j
+        implementation group: 'org.apache.logging.log4j', name: 'log4j-api', version: version_log4j2
+        implementation group: 'org.apache.logging.log4j', name: 'log4j-core', version: version_log4j2
+        implementation group: 'org.apache.logging.log4j', name: 'log4j-slf4j2-impl', version: version_log4j2
+
+        ///// JUnit 5
+        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-api', version: version_junit
+        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-engine', version: version_junit
+        testImplementation group: 'org.junit.jupiter', name: 'junit-jupiter-params', version: version_junit
+        testImplementation group: 'org.junit.platform', name: 'junit-platform-commons', version: version_junit_platform
+    }
+}
+
+/* Generate common Cottontail DB distribution*/
+distributions {
+    main {
+        contents {
+            into('bin') {
+                from { project(':cottontaildb-dbms').startScripts.outputs.files }
+                from { project(':cottontaildb-cli').startScripts.outputs.files }
+                from { project(':cottontaildb-ui-backend').startScripts.outputs.files }
+                fileMode = 0755
+            }
+            into('lib') {
+                def libs = []
+                libs << project(':cottontaildb-dbms').configurations.runtimeClasspath
+                libs << project(':cottontaildb-cli').configurations.runtimeClasspath
+                libs << project(':cottontaildb-ui-backend').configurations.runtimeClasspath
+                from libs
+                from project(':cottontaildb-dbms').jar
+                from project(':cottontaildb-cli').jar
+                from project(':cottontaildb-ui-backend').jar
+            }
+        }
+    }
+}
+
+//// Change name for distribution to C(arrot)LI.
+distZip.archiveFileName = 'cottontaildb-full.zip'
+distTar.archiveFileName = 'cottontaildb-full.tar'
